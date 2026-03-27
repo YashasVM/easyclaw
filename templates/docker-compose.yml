@@ -1,0 +1,26 @@
+version: "3.8"
+services:
+  openclaw-gateway:
+    image: ghcr.io/openclaw/openclaw:latest
+    container_name: openclaw-gateway
+    restart: unless-stopped
+    ports:
+      - "${OPENCLAW_PORT:-18789}:18789"
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-./config}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-./workspace}:/home/node/.openclaw/workspace
+    environment:
+      - NODE_ENV=production
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18789/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: ${OPENCLAW_MEM_LIMIT:-2g}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

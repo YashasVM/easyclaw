@@ -1,0 +1,996 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# easyclaw — Post-install management CLI for OpenClaw
+# Version : 1.0.0
+# Design  : Granny-proof. One word commands, plain English, zero jargon.
+# ==============================================================================
+set -euo pipefail
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 1 · CONFIGURATION
+# ──────────────────────────────────────────────────────────────────────────────
+
+EASYCLAW_VERSION="1.0.0"
+EASYCLAW_DIR="$HOME/.easyclaw"
+OPENCLAW_DIR="$HOME/.openclaw"
+BACKUP_DIR="$HOME/.easyclaw/backups"
+LOG_FILE="/tmp/easyclaw.log"
+GITHUB_RELEASES="https://api.github.com/repos/openclaw/openclaw/releases/latest"
+
+# Maximum number of backups to keep
+MAX_BACKUPS=5
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 2 · COLOUR & UI UTILITIES
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Detect colour support
+if [[ -t 1 ]] && command -v tput &>/dev/null && tput colors &>/dev/null && [[ "$(tput colors)" -ge 8 ]]; then
+  BOLD="$(tput bold)"
+  RESET="$(tput sgr0)"
+  RED="$(tput setaf 1)"
+  GREEN="$(tput setaf 2)"
+  YELLOW="$(tput setaf 3)"
+  BLUE="$(tput setaf 4)"
+  MAGENTA="$(tput setaf 5)"
+  CYAN="$(tput setaf 6)"
+  WHITE="$(tput setaf 7)"
+  DIM="$(tput dim 2>/dev/null || true)"
+else
+  BOLD="" RESET="" RED="" GREEN="" YELLOW="" BLUE="" MAGENTA="" CYAN="" WHITE="" DIM=""
+fi
+
+# info — plain informational line
+info()    { printf "%s  %s%s\n"  "${CYAN}ℹ${RESET}"    "${1}"  "${RESET}"; }
+
+# success — positive result
+success() { printf "%s  %s%s\n"  "${GREEN}✔${RESET}"   "${GREEN}${1}${RESET}" "${RESET}"; }
+
+# warn — non-fatal warning
+warn()    { printf "%s  %s%s\n"  "${YELLOW}⚠${RESET}"  "${YELLOW}${1}${RESET}" "${RESET}"; }
+
+# error — fatal or important error (does NOT exit by itself)
+error()   { printf "%s  %s%s\n"  "${RED}✖${RESET}"     "${RED}${1}${RESET}" "${RESET}" >&2; }
+
+# step — numbered / progress indicator
+step()    { printf "%s  %s\n"    "${BOLD}${BLUE}→${RESET}" "${BOLD}${1}${RESET}"; }
+
+# dim text (secondary info)
+dim()     { printf "%s%s%s\n"    "${DIM}" "${1}" "${RESET}"; }
+
+# blank separator
+sep() {
+  local width="${1:-60}"
+  printf "%s%s%s\n" "${DIM}" "$(printf '─%.0s' $(seq 1 "$width"))" "${RESET}"
+}
+
+# spinner — show a spinner while a background command runs
+#   Usage: spinner "message" -- <cmd> [args...]
+spinner() {
+  local msg="$1"; shift 2   # eat "message" and "--"
+  local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+  local i=0
+
+  # Run the command in background, capturing output to log
+  "$@" >> "$LOG_FILE" 2>&1 &
+  local pid=$!
+
+  while kill -0 "$pid" 2>/dev/null; do
+    printf "\r%s  %s  " "${CYAN}${frames[$i]}${RESET}" "$msg"
+    i=$(( (i + 1) % ${#frames[@]} ))
+    sleep 0.1
+  done
+
+  wait "$pid"
+  local rc=$?
+  printf "\r%s\n" "$(printf ' %.0s' $(seq 1 $((${#msg} + 6))))"   # clear line
+  return $rc
+}
+
+# confirm — ask a yes/no question; returns 0 for yes, 1 for no
+confirm() {
+  local prompt="${1:-Are you sure?}"
+  local answer
+  while true; do
+    printf "%s %s[y/n]%s " "${YELLOW}?${RESET} ${prompt}" "${DIM}" "${RESET}"
+    read -r answer
+    case "${answer,,}" in
+      y|yes) return 0 ;;
+      n|no)  return 1 ;;
+      *)     warn "Please type y or n." ;;
+    esac
+  done
+}
+
+# log — write a timestamped entry to the log file
+log() {
+  printf "[%s] %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE"
+}
+
+# die — print error and exit
+die() {
+  error "$*"
+  log "FATAL: $*"
+  exit 1
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 3 · ASCII BANNER
+# ──────────────────────────────────────────────────────────────────────────────
+
+banner() {
+  printf "\n"
+  printf "%s" "${CYAN}${BOLD}"
+  cat <<'BANNER'
+   ___  ____  ___  _  _  ___  __    ____  _  _ 
+  | __|/ _  \/ __|| \/ ||  _||  |  / _  \| || |
+  | _| | (_) |\__ \|    || |_ | |__| (_) | \/  |
+  |___|\____/ \___/|_||_||___||____|\____/ \__/ 
+BANNER
+  printf "%s" "${RESET}"
+  printf "  %sPost-install manager for OpenClaw  %sv%s%s\n\n" \
+    "${DIM}" "${BOLD}${MAGENTA}" "$EASYCLAW_VERSION" "${RESET}"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 4 · DETECTION: bare-metal vs docker
+# ──────────────────────────────────────────────────────────────────────────────
+
+# INSTALL_MODE is set to "docker" or "metal" after detect_mode() runs
+INSTALL_MODE=""
+
+detect_mode() {
+  if [[ -f "$EASYCLAW_DIR/docker-compose.yml" ]] || \
+     [[ -f "$EASYCLAW_DIR/compose.yml" ]]; then
+    INSTALL_MODE="docker"
+  else
+    INSTALL_MODE="metal"
+  fi
+  log "Detected install mode: $INSTALL_MODE"
+}
+
+# Return the docker-compose file path
+compose_file() {
+  if [[ -f "$EASYCLAW_DIR/docker-compose.yml" ]]; then
+    echo "$EASYCLAW_DIR/docker-compose.yml"
+  else
+    echo "$EASYCLAW_DIR/compose.yml"
+  fi
+}
+
+# Run a docker compose command in the easyclaw dir
+dc() {
+  docker compose -f "$(compose_file)" "$@"
+}
+
+# Get openclaw version string
+openclaw_version() {
+  if [[ "$INSTALL_MODE" == "docker" ]]; then
+    dc exec -T openclaw openclaw --version 2>/dev/null || echo "unknown"
+  else
+    openclaw --version 2>/dev/null || echo "unknown"
+  fi
+}
+
+# Check if the openclaw gateway/process is running
+gateway_running() {
+  if [[ "$INSTALL_MODE" == "docker" ]]; then
+    dc ps --status running 2>/dev/null | grep -q "openclaw"
+  else
+    pgrep -f "openclaw" &>/dev/null
+  fi
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 5 · ENSURE DIRS
+# ──────────────────────────────────────────────────────────────────────────────
+
+ensure_dirs() {
+  mkdir -p "$EASYCLAW_DIR" "$BACKUP_DIR"
+  touch "$LOG_FILE"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 6 · COMMAND: status
+# ──────────────────────────────────────────────────────────────────────────────
+
+cmd_status() {
+  log "Running: status"
+  banner
+
+  local version running_label uptime_str cpu_mem disk_usage last_backup issues=()
+
+  # ── OpenClaw version ──────────────────────────────────────────────────────
+  version="$(openclaw_version 2>/dev/null || echo "unknown")"
+
+  # ── Gateway status ────────────────────────────────────────────────────────
+  if gateway_running; then
+    running_label="${GREEN}${BOLD}RUNNING${RESET}"
+    # Uptime
+    if [[ "$INSTALL_MODE" == "docker" ]]; then
+      uptime_str="$(dc ps --format json 2>/dev/null \
+        | grep -o '"RunningFor":"[^"]*"' \
+        | head -1 \
+        | cut -d'"' -f4 || echo "unknown")"
+    else
+      local pid
+      pid="$(pgrep -f 'openclaw' | head -1 || true)"
+      if [[ -n "$pid" ]]; then
+        uptime_str="$(ps -o etime= -p "$pid" 2>/dev/null | xargs || echo "unknown")"
+      else
+        uptime_str="unknown"
+      fi
+    fi
+  else
+    running_label="${RED}${BOLD}STOPPED${RESET}"
+    uptime_str="—"
+    issues+=("Gateway is not running")
+  fi
+
+  # ── CPU / Memory ─────────────────────────────────────────────────────────
+  if [[ "$INSTALL_MODE" == "docker" ]]; then
+    cpu_mem="$(docker stats --no-stream --format "CPU {{.CPUPerc}}  MEM {{.MemUsage}}" \
+      "$(dc ps -q openclaw 2>/dev/null | head -1)" 2>/dev/null || echo "N/A")"
+  else
+    local pid
+    pid="$(pgrep -f 'openclaw' | head -1 || true)"
+    if [[ -n "$pid" ]]; then
+      cpu_mem="CPU $(ps -o %cpu= -p "$pid" 2>/dev/null | xargs)%  MEM $(ps -o %mem= -p "$pid" 2>/dev/null | xargs)%"
+    else
+      cpu_mem="N/A"
+    fi
+  fi
+
+  # ── Disk usage ────────────────────────────────────────────────────────────
+  if [[ -d "$OPENCLAW_DIR" ]]; then
+    disk_usage="$(du -sh "$OPENCLAW_DIR" 2>/dev/null | cut -f1)"
+  else
+    disk_usage="N/A"
+    issues+=("OpenClaw directory not found at $OPENCLAW_DIR")
+  fi
+
+  # ── Last backup ───────────────────────────────────────────────────────────
+  local latest_backup
+  latest_backup="$(ls -1t "$BACKUP_DIR"/backup-*.tar.gz 2>/dev/null | head -1 || true)"
+  if [[ -n "$latest_backup" ]]; then
+    last_backup="$(basename "$latest_backup") — $(date -r "$latest_backup" '+%b %d %Y %H:%M')"
+  else
+    last_backup="${DIM}None${RESET}"
+    issues+=("No backups found — run 'easyclaw backup'")
+  fi
+
+  # ── Connected channels ────────────────────────────────────────────────────
+  local config_file="$OPENCLAW_DIR/openclaw.json"
+  local channels_output=""
+  if [[ -f "$config_file" ]]; then
+    # Extract channel names from JSON keys (basic grep, avoids jq dependency)
+    local raw_channels
+    raw_channels="$(grep -oP '"(slack|discord|teams|telegram|whatsapp|messenger|line|wechat|signal)"\s*:' \
+      "$config_file" 2>/dev/null \
+      | tr -d '"' | tr -d ':' | tr -d ' ' || true)"
+    if [[ -n "$raw_channels" ]]; then
+      while IFS= read -r ch; do
+        channels_output+="      ${GREEN}●${RESET}  $ch\n"
+      done <<< "$raw_channels"
+    else
+      channels_output="      ${DIM}None configured${RESET}\n"
+    fi
+  else
+    channels_output="      ${DIM}Config not found${RESET}\n"
+    issues+=("openclaw.json not found")
+  fi
+
+  # ── Free disk space check ─────────────────────────────────────────────────
+  local free_kb
+  free_kb="$(df "$HOME" 2>/dev/null | awk 'NR==2 {print $4}')"
+  if [[ -n "$free_kb" && "$free_kb" -lt 512000 ]]; then
+    issues+=("Low disk space: less than 500 MB free")
+  fi
+
+  # ── Render panel ─────────────────────────────────────────────────────────
+  sep 60
+  printf "  ${BOLD}%-20s${RESET} %s\n"  "OpenClaw version"  "$version"
+  printf "  ${BOLD}%-20s${RESET} %b\n"  "Gateway"           "$running_label (up $uptime_str)"
+  printf "  ${BOLD}%-20s${RESET} %s\n"  "Resources"         "$cpu_mem"
+  printf "  ${BOLD}%-20s${RESET} %s\n"  "Data directory"    "$disk_usage  ($OPENCLAW_DIR)"
+  printf "  ${BOLD}%-20s${RESET} %s\n"  "Last backup"       "$last_backup"
+  printf "  ${BOLD}%-20s${RESET}\n"     "Connected channels"
+  printf "%b"                           "$channels_output"
+  sep 60
+
+  # ── Overall health ────────────────────────────────────────────────────────
+  if [[ ${#issues[@]} -eq 0 ]]; then
+    printf "  %s  ${BOLD}All systems GO${RESET} — everything looks great!\n\n" "${GREEN}✔${RESET}"
+  else
+    printf "  %s  ${BOLD}Issues detected:${RESET}\n" "${YELLOW}⚠${RESET}"
+    for issue in "${issues[@]}"; do
+      printf "      ${YELLOW}•${RESET}  %s\n" "$issue"
+    done
+    printf "\n"
+  fi
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 7 · COMMAND: update
+# ──────────────────────────────────────────────────────────────────────────────
+
+cmd_update() {
+  log "Running: update"
+  step "Checking for updates…"
+
+  local current latest changelog_url changelog_body
+
+  current="$(openclaw_version 2>/dev/null | sed 's/[^0-9.]//g' || echo "0.0.0")"
+
+  # Fetch latest release from GitHub
+  local release_json
+  if ! release_json="$(curl -fsSL --connect-timeout 10 "$GITHUB_RELEASES" 2>/dev/null)"; then
+    die "Could not reach GitHub to check for updates. Are you online?"
+  fi
+
+  latest="$(printf '%s' "$release_json" | grep -oP '"tag_name"\s*:\s*"\Kv?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "0.0.0")"
+  latest="${latest#v}"  # strip leading 'v'
+
+  changelog_body="$(printf '%s' "$release_json" \
+    | grep -oP '"body"\s*:\s*"\K[^"]+' | head -1 \
+    | sed 's/\\n/\n/g; s/\\r//g' \
+    | head -20 || true)"
+
+  info "Current version : ${BOLD}v${current}${RESET}"
+  info "Latest version  : ${BOLD}v${latest}${RESET}"
+
+  # Compare versions (simple numeric comparison per segment)
+  local cur_major cur_minor cur_patch lat_major lat_minor lat_patch
+  IFS='.' read -r cur_major cur_minor cur_patch <<< "$current"
+  IFS='.' read -r lat_major lat_minor lat_patch <<< "$latest"
+
+  local update_needed=false
+  if (( lat_major > cur_major )) || \
+     (( lat_major == cur_major && lat_minor > cur_minor )) || \
+     (( lat_major == cur_major && lat_minor == cur_minor && lat_patch > cur_patch )); then
+    update_needed=true
+  fi
+
+  if ! $update_needed; then
+    success "You are already on the latest version (v${current})."
+    return 0
+  fi
+
+  warn "An update is available: v${current} → v${latest}"
+
+  if [[ -n "$changelog_body" ]]; then
+    sep 60
+    printf "  ${BOLD}What's new in v${latest}:${RESET}\n"
+    while IFS= read -r line; do
+      printf "    %s\n" "$line"
+    done <<< "$changelog_body"
+    sep 60
+  fi
+
+  confirm "Proceed with update?" || { info "Update cancelled."; return 0; }
+
+  # Auto-backup before update
+  step "Backing up your config before updating…"
+  _do_backup "pre-update"
+
+  # Perform update
+  step "Updating OpenClaw from v${current} to v${latest}…"
+  if [[ "$INSTALL_MODE" == "docker" ]]; then
+    spinner "Pulling latest Docker image…" -- dc pull
+    spinner "Restarting containers…"       -- dc up -d
+  else
+    spinner "Updating npm package…" -- npm update -g "openclaw@latest"
+  fi
+
+  # Run doctor
+  step "Running health check…"
+  cmd_doctor --quiet || true
+
+  success "Updated from v${current} to v${latest}. Enjoy the new features!"
+  log "Updated OpenClaw from v${current} to v${latest}"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 8 · COMMAND: backup
+# ──────────────────────────────────────────────────────────────────────────────
+
+_do_backup() {
+  # Internal helper — also called by update/uninstall
+  local label="${1:-manual}"
+  local timestamp; timestamp="$(date '+%Y-%m-%d-%H%M%S')"
+  local archive="$BACKUP_DIR/backup-${timestamp}.tar.gz"
+  local tmp_dir; tmp_dir="$(mktemp -d)"
+
+  # Always include config + credentials
+  local include_paths=()
+  [[ -f "$OPENCLAW_DIR/openclaw.json" ]]   && include_paths+=("openclaw.json")
+  [[ -d "$OPENCLAW_DIR/credentials" ]]     && include_paths+=("credentials")
+
+  # Workspace — ask if large
+  if [[ -d "$OPENCLAW_DIR/workspace" ]]; then
+    local ws_size; ws_size="$(du -sm "$OPENCLAW_DIR/workspace" 2>/dev/null | cut -f1)"
+    if [[ "${ws_size:-0}" -gt 100 ]]; then
+      if confirm "Workspace folder is ${ws_size} MB — include it in the backup?"; then
+        include_paths+=("workspace")
+      fi
+    else
+      include_paths+=("workspace")
+    fi
+  fi
+
+  if [[ ${#include_paths[@]} -eq 0 ]]; then
+    warn "Nothing to back up — $OPENCLAW_DIR appears empty."
+    rm -rf "$tmp_dir"
+    return 1
+  fi
+
+  # Create archive
+  tar -czf "$archive" -C "$OPENCLAW_DIR" "${include_paths[@]}" 2>>"$LOG_FILE"
+
+  rm -rf "$tmp_dir"
+
+  local size; size="$(du -sh "$archive" | cut -f1)"
+  success "Backup saved: ${BOLD}$(basename "$archive")${RESET}  (${size})"
+  info    "Location: $archive"
+  log     "Backup created [$label]: $archive ($size)"
+
+  # Prune old backups — keep latest MAX_BACKUPS
+  local all_backups
+  mapfile -t all_backups < <(ls -1t "$BACKUP_DIR"/backup-*.tar.gz 2>/dev/null)
+  if (( ${#all_backups[@]} > MAX_BACKUPS )); then
+    local to_delete=("${all_backups[@]:$MAX_BACKUPS}")
+    for old in "${to_delete[@]}"; do
+      rm -f "$old"
+      log "Pruned old backup: $old"
+    done
+    info "Kept the ${MAX_BACKUPS} most recent backups; older ones were removed."
+  fi
+
+  # Export the archive path for callers who need it
+  LAST_BACKUP_PATH="$archive"
+}
+
+cmd_backup() {
+  log "Running: backup"
+  step "Creating backup of your OpenClaw config…"
+  _do_backup "manual"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 9 · COMMAND: restore
+# ──────────────────────────────────────────────────────────────────────────────
+
+cmd_restore() {
+  log "Running: restore $*"
+  local target="${1:-}"
+
+  if [[ -z "$target" ]]; then
+    # List available backups
+    mapfile -t backups < <(ls -1t "$BACKUP_DIR"/backup-*.tar.gz 2>/dev/null)
+    if [[ ${#backups[@]} -eq 0 ]]; then
+      die "No backups found in $BACKUP_DIR. Run 'easyclaw backup' first."
+    fi
+
+    printf "\n  ${BOLD}Available backups:${RESET}\n"
+    local i=1
+    for b in "${backups[@]}"; do
+      local sz; sz="$(du -sh "$b" | cut -f1)"
+      local dt; dt="$(date -r "$b" '+%b %d %Y %H:%M' 2>/dev/null || stat -c '%y' "$b" | cut -d. -f1)"
+      printf "    ${CYAN}%2d${RESET}  %-45s  %s  (%s)\n" "$i" "$(basename "$b")" "$dt" "$sz"
+      (( i++ ))
+    done
+    printf "\n"
+
+    local choice
+    while true; do
+      printf "%s Enter number [1-%d]: " "${YELLOW}?${RESET}" "${#backups[@]}"
+      read -r choice
+      if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#backups[@]} )); then
+        target="${backups[$((choice - 1))]}"
+        break
+      fi
+      warn "Please enter a number between 1 and ${#backups[@]}."
+    done
+  fi
+
+  [[ -f "$target" ]] || die "Backup file not found: $target"
+
+  local bname; bname="$(basename "$target")"
+  warn "This will REPLACE your current OpenClaw config with: ${BOLD}$bname${RESET}"
+  confirm "Continue with restore?" || { info "Restore cancelled."; return 0; }
+
+  # Stop gateway
+  step "Stopping OpenClaw gateway…"
+  _gateway_stop || true
+
+  # Restore files
+  step "Restoring config from backup…"
+  mkdir -p "$OPENCLAW_DIR"
+  tar -xzf "$target" -C "$OPENCLAW_DIR" 2>>"$LOG_FILE"
+
+  # Restart gateway
+  step "Restarting gateway…"
+  _gateway_start || true
+
+  # Health check
+  sleep 2
+  if gateway_running; then
+    success "Restore complete and gateway is running."
+  else
+    warn "Restore complete, but the gateway did not start. Run 'easyclaw doctor'."
+  fi
+  log "Restored from $target"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 10 · GATEWAY HELPERS (start / stop)
+# ──────────────────────────────────────────────────────────────────────────────
+
+_gateway_stop() {
+  if [[ "$INSTALL_MODE" == "docker" ]]; then
+    dc stop 2>>"$LOG_FILE"
+  else
+    if command -v openclaw &>/dev/null; then
+      openclaw daemon stop 2>>"$LOG_FILE" || pkill -f "openclaw" 2>/dev/null || true
+    fi
+  fi
+}
+
+_gateway_start() {
+  if [[ "$INSTALL_MODE" == "docker" ]]; then
+    dc start 2>>"$LOG_FILE"
+  else
+    if command -v openclaw &>/dev/null; then
+      openclaw daemon start 2>>"$LOG_FILE"
+    fi
+  fi
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 11 · COMMAND: channels
+# ──────────────────────────────────────────────────────────────────────────────
+
+_channels_list() {
+  local config_file="$OPENCLAW_DIR/openclaw.json"
+  printf "\n  ${BOLD}Connected channels:${RESET}\n"
+  sep 50
+
+  if [[ ! -f "$config_file" ]]; then
+    warn "Config file not found at $config_file"
+    return 1
+  fi
+
+  local found=false
+  local known_channels=("slack" "discord" "teams" "telegram" "whatsapp"
+                        "messenger" "line" "wechat" "signal" "email" "sms")
+
+  for ch in "${known_channels[@]}"; do
+    if grep -qi "\"$ch\"" "$config_file" 2>/dev/null; then
+      # Try basic connectivity check
+      local status_icon="${GREEN}●${RESET}"
+      printf "    %b  ${BOLD}%-15s${RESET}\n" "$status_icon" "$ch"
+      found=true
+    fi
+  done
+
+  if ! $found; then
+    info "No channels configured. Run 'easyclaw channels add' to connect one."
+  fi
+  printf "\n"
+}
+
+_channels_add() {
+  printf "\n  ${BOLD}Add a new channel${RESET}\n"
+  sep 50
+  info "Supported channels: slack, discord, teams, telegram, whatsapp, email, sms"
+  printf "\n"
+
+  local ch_name
+  printf "  Channel name: "
+  read -r ch_name
+
+  if [[ -z "$ch_name" ]]; then
+    die "Channel name cannot be empty."
+  fi
+
+  # Launch interactive openclaw channel add
+  if [[ "$INSTALL_MODE" == "docker" ]]; then
+    dc exec openclaw openclaw channels add "$ch_name"
+  else
+    openclaw channels add "$ch_name"
+  fi
+
+  success "Channel '$ch_name' setup complete."
+  log "Added channel: $ch_name"
+}
+
+_channels_remove() {
+  local ch_name="${1:-}"
+  [[ -n "$ch_name" ]] || die "Usage: easyclaw channels remove <channel-name>"
+
+  warn "This will remove the '$ch_name' channel configuration."
+  confirm "Remove channel '$ch_name'?" || { info "Cancelled."; return 0; }
+
+  if [[ "$INSTALL_MODE" == "docker" ]]; then
+    dc exec openclaw openclaw channels remove "$ch_name" 2>>"$LOG_FILE"
+  else
+    openclaw channels remove "$ch_name" 2>>"$LOG_FILE"
+  fi
+
+  success "Channel '$ch_name' removed."
+  log "Removed channel: $ch_name"
+}
+
+cmd_channels() {
+  log "Running: channels $*"
+  local subcmd="${1:-list}"
+  shift || true
+
+  case "$subcmd" in
+    list)   _channels_list ;;
+    add)    _channels_add ;;
+    remove) _channels_remove "$@" ;;
+    *)
+      error "Unknown channels subcommand: '$subcmd'"
+      info  "Available: list, add, remove <channel>"
+      exit 1
+      ;;
+  esac
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 12 · COMMAND: logs
+# ──────────────────────────────────────────────────────────────────────────────
+
+cmd_logs() {
+  log "Running: logs $*"
+  local lines=50
+
+  # Parse --lines N
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --lines|-n)
+        shift
+        lines="${1:?'--lines requires a number'}"
+        ;;
+      --lines=*) lines="${1#*=}" ;;
+      *) warn "Unknown flag '$1' — ignoring." ;;
+    esac
+    shift
+  done
+
+  info "Showing last ${lines} lines of OpenClaw gateway logs  (Ctrl+C to stop)"
+  sep 60
+
+  if [[ "$INSTALL_MODE" == "docker" ]]; then
+    dc logs --tail="$lines" -f openclaw 2>&1 \
+      | sed "s/\(ERROR\|FATAL\)/${RED}${BOLD}&${RESET}/gI" \
+      | sed "s/\(WARN\)/${YELLOW}&${RESET}/gI" \
+      | sed "s/\(INFO\)/${CYAN}&${RESET}/gI"
+  else
+    # Try journalctl first, fall back to log file
+    local log_path="$OPENCLAW_DIR/logs/gateway.log"
+    if command -v journalctl &>/dev/null && \
+       journalctl -u openclaw --no-pager -n1 &>/dev/null 2>&1; then
+      journalctl -u openclaw -f -n "$lines" 2>&1 \
+        | sed "s/\(ERROR\|FATAL\)/${RED}${BOLD}&${RESET}/gI" \
+        | sed "s/\(WARN\)/${YELLOW}&${RESET}/gI"
+    elif [[ -f "$log_path" ]]; then
+      tail -n "$lines" -f "$log_path" \
+        | sed "s/\(ERROR\|FATAL\)/${RED}${BOLD}&${RESET}/gI" \
+        | sed "s/\(WARN\)/${YELLOW}&${RESET}/gI"
+    else
+      die "Could not find OpenClaw logs. Tried journalctl and $log_path"
+    fi
+  fi
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 13 · COMMAND: doctor
+# ──────────────────────────────────────────────────────────────────────────────
+
+cmd_doctor() {
+  local quiet_mode=false
+  [[ "${1:-}" == "--quiet" ]] && quiet_mode=true
+
+  log "Running: doctor"
+  $quiet_mode || { printf "\n  ${BOLD}Running health checks…${RESET}\n"; sep 60; }
+
+  local pass=0 fail=0 warn_count=0
+
+  _check() {
+    local label="$1" status="$2" detail="${3:-}"
+    case "$status" in
+      ok)
+        (( pass++ )) || true
+        $quiet_mode || printf "  ${GREEN}✔${RESET}  %-35s %s\n" "$label" "${GREEN}OK${RESET}"
+        ;;
+      warn)
+        (( warn_count++ )) || true
+        $quiet_mode || printf "  ${YELLOW}⚠${RESET}  %-35s %s  %s\n" "$label" "${YELLOW}WARN${RESET}" "$detail"
+        ;;
+      fail)
+        (( fail++ )) || true
+        $quiet_mode || printf "  ${RED}✖${RESET}  %-35s %s  %s\n" "$label" "${RED}FAIL${RESET}" "$detail"
+        ;;
+    esac
+  }
+
+  # 1 — Gateway running
+  if gateway_running; then
+    _check "Gateway running" ok
+  else
+    _check "Gateway running" fail "Run 'easyclaw restart' to start it"
+  fi
+
+  # 2 — Node.js version (bare-metal only)
+  if [[ "$INSTALL_MODE" == "metal" ]]; then
+    if command -v node &>/dev/null; then
+      local node_ver; node_ver="$(node --version | tr -d 'v')"
+      local major; major="$(cut -d. -f1 <<< "$node_ver")"
+      if (( major >= 18 )); then
+        _check "Node.js version (v${node_ver})" ok
+      else
+        _check "Node.js version (v${node_ver})" warn "OpenClaw recommends Node 18+"
+      fi
+    else
+      _check "Node.js installed" fail "node not found in PATH"
+    fi
+  fi
+
+  # 3 — Disk space (require at least 500 MB free)
+  local free_kb; free_kb="$(df "$HOME" 2>/dev/null | awk 'NR==2 {print $4}')"
+  if [[ -n "$free_kb" ]]; then
+    if (( free_kb >= 512000 )); then
+      _check "Disk space free" ok
+    elif (( free_kb >= 102400 )); then
+      _check "Disk space free ($(( free_kb / 1024 )) MB)" warn "Getting low — consider cleanup"
+    else
+      _check "Disk space free ($(( free_kb / 1024 )) MB)" fail "Less than 100 MB — take action now"
+    fi
+  fi
+
+  # 4 — Config file present
+  if [[ -f "$OPENCLAW_DIR/openclaw.json" ]]; then
+    _check "Config file present" ok
+  else
+    _check "Config file present" fail "$OPENCLAW_DIR/openclaw.json missing"
+  fi
+
+  # 5 — API key connectivity (basic HTTP check via openclaw doctor)
+  if [[ "$INSTALL_MODE" == "docker" ]]; then
+    if dc exec -T openclaw openclaw doctor 2>>"$LOG_FILE" | grep -qi "ok\|pass"; then
+      _check "API key / connectivity" ok
+    else
+      _check "API key / connectivity" warn "Run 'dc exec openclaw openclaw doctor' for details"
+    fi
+  else
+    if command -v openclaw &>/dev/null; then
+      if openclaw doctor 2>>"$LOG_FILE" | grep -qi "ok\|pass"; then
+        _check "API key / connectivity" ok
+      else
+        _check "API key / connectivity" warn "Run 'openclaw doctor' for details"
+      fi
+    else
+      _check "openclaw CLI available" fail "openclaw not found in PATH"
+    fi
+  fi
+
+  # 6 — DNS resolution
+  if host "api.openclaw.io" &>/dev/null 2>&1 || \
+     getent hosts "api.openclaw.io" &>/dev/null 2>&1; then
+    _check "DNS resolution (api.openclaw.io)" ok
+  else
+    _check "DNS resolution (api.openclaw.io)" warn "Cannot resolve hostname — check network/DNS"
+  fi
+
+  # ── Summary ───────────────────────────────────────────────────────────────
+  if ! $quiet_mode; then
+    sep 60
+    printf "  Checks passed: ${GREEN}${BOLD}%d${RESET}  " "$pass"
+    printf "  Warnings: ${YELLOW}${BOLD}%d${RESET}  " "$warn_count"
+    printf "  Failures: ${RED}${BOLD}%d${RESET}\n\n" "$fail"
+
+    if (( fail == 0 && warn_count == 0 )); then
+      success "Everything looks healthy!"
+    elif (( fail == 0 )); then
+      warn "Minor issues detected — see warnings above."
+    else
+      error "${fail} critical issue(s) need attention."
+    fi
+  fi
+
+  (( fail == 0 ))  # return non-zero if any failures
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 14 · COMMAND: restart
+# ──────────────────────────────────────────────────────────────────────────────
+
+cmd_restart() {
+  log "Running: restart"
+  step "Restarting OpenClaw gateway…"
+
+  if [[ "$INSTALL_MODE" == "docker" ]]; then
+    spinner "Restarting Docker containers…" -- dc restart
+  else
+    spinner "Restarting daemon…" -- openclaw daemon restart
+  fi
+
+  sleep 2
+
+  if gateway_running; then
+    success "Gateway restarted and is running."
+  else
+    error "Gateway did not come back up after restart."
+    info  "Try 'easyclaw logs' to see what went wrong."
+    exit 1
+  fi
+  log "Gateway restarted"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 15 · COMMAND: uninstall
+# ──────────────────────────────────────────────────────────────────────────────
+
+cmd_uninstall() {
+  log "Running: uninstall"
+  banner
+
+  error "You are about to UNINSTALL OpenClaw and EasyClaw."
+  warn  "This will remove the gateway, all config, and this CLI tool."
+  printf "\n"
+
+  # Double confirmation
+  confirm "Are you absolutely sure you want to uninstall?" || { info "Uninstall cancelled."; return 0; }
+
+  printf "  ${RED}${BOLD}Type UNINSTALL to confirm (or anything else to cancel):${RESET} "
+  local typed
+  read -r typed
+  if [[ "$typed" != "UNINSTALL" ]]; then
+    info "Uninstall cancelled — you typed '${typed}', not UNINSTALL."
+    return 0
+  fi
+
+  # Auto-backup first
+  step "Creating a final backup of your config before removal…"
+  LAST_BACKUP_PATH=""
+  _do_backup "pre-uninstall" || true
+  local backup_note="${LAST_BACKUP_PATH:-$BACKUP_DIR}"
+
+  # Stop gateway
+  step "Stopping gateway…"
+  _gateway_stop || true
+
+  # Remove based on install mode
+  if [[ "$INSTALL_MODE" == "docker" ]]; then
+    step "Removing Docker containers…"
+    dc down 2>>"$LOG_FILE" || true
+
+    if confirm "Also remove Docker images? (saves disk space)"; then
+      step "Removing Docker images…"
+      docker rmi "$(dc config --services 2>/dev/null | xargs -I{} dc images -q {} 2>/dev/null)" 2>>"$LOG_FILE" || true
+    fi
+
+    if confirm "Also remove Docker volumes (this deletes all stored data)?"; then
+      step "Removing volumes…"
+      dc down -v 2>>"$LOG_FILE" || true
+    fi
+
+    # Remove compose file
+    rm -f "$(compose_file)" 2>/dev/null || true
+  else
+    step "Removing openclaw npm package…"
+    npm uninstall -g openclaw 2>>"$LOG_FILE" || true
+  fi
+
+  # Remove openclaw data directory
+  if [[ -d "$OPENCLAW_DIR" ]]; then
+    step "Removing $OPENCLAW_DIR …"
+    rm -rf "$OPENCLAW_DIR"
+  fi
+
+  # Remove easyclaw from PATH (best-effort)
+  step "Removing easyclaw CLI…"
+  local self_path
+  self_path="$(command -v easyclaw 2>/dev/null || true)"
+  if [[ -n "$self_path" && -w "$self_path" ]]; then
+    rm -f "$self_path"
+  else
+    warn "Could not auto-remove easyclaw from PATH. Delete it manually: $(command -v easyclaw 2>/dev/null || echo 'easyclaw')"
+  fi
+
+  printf "\n"
+  sep 60
+  success "OpenClaw and EasyClaw have been removed from this machine."
+  info    "Your last backup is safely stored at:"
+  printf  "    %s\n\n" "$backup_note"
+  log     "Uninstall complete. Backup: $backup_note"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 16 · COMMAND: help
+# ──────────────────────────────────────────────────────────────────────────────
+
+cmd_help() {
+  banner
+  printf "  ${BOLD}USAGE${RESET}\n"
+  printf "    easyclaw <command> [options]\n\n"
+
+  sep 60
+  printf "  ${BOLD}%-20s  %-38s${RESET}\n" "COMMAND" "WHAT IT DOES"
+  sep 60
+
+  _row() { printf "  ${CYAN}%-20s${RESET}  %s\n" "$1" "$2"; }
+
+  _row "status"             "Show gateway health, channels, and resource usage"
+  _row "update"             "Check for updates and upgrade OpenClaw"
+  _row "backup"             "Save a snapshot of your config and credentials"
+  _row "restore [file]"     "Restore config from a previous backup"
+  _row "channels list"      "Show all connected messaging channels"
+  _row "channels add"       "Connect a new messaging channel interactively"
+  _row "channels remove <n>" "Disconnect and remove a channel"
+  _row "logs [--lines N]"   "Stream live gateway logs (default: last 50 lines)"
+  _row "doctor"             "Run a full health check on your installation"
+  _row "restart"            "Restart the OpenClaw gateway"
+  _row "uninstall"          "Completely remove OpenClaw and EasyClaw"
+  _row "help"               "Show this help screen"
+
+  sep 60
+  printf "\n  %sEasyClaw v%s — built for humans%s\n\n" "${DIM}" "$EASYCLAW_VERSION" "${RESET}"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 17 · ERROR HANDLER
+# ──────────────────────────────────────────────────────────────────────────────
+
+_on_error() {
+  local exit_code="$?"
+  local line_no="${1:-unknown}"
+  log "ERROR: Unexpected failure at line $line_no (exit code $exit_code)"
+  error "Something went wrong on line ${line_no} (exit code ${exit_code})."
+  info  "The full log is at: $LOG_FILE"
+  info  "Run 'easyclaw doctor' to check your setup."
+}
+
+trap '_on_error $LINENO' ERR
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECTION 18 · MAIN ENTRY POINT
+# ──────────────────────────────────────────────────────────────────────────────
+
+main() {
+  ensure_dirs
+  detect_mode
+
+  local cmd="${1:-}"
+  shift || true
+
+  log "easyclaw $cmd $*"
+
+  case "$cmd" in
+    status)    cmd_status          ;;
+    update)    cmd_update          ;;
+    backup)    cmd_backup          ;;
+    restore)   cmd_restore "$@"    ;;
+    channels)  cmd_channels "$@"   ;;
+    logs)      cmd_logs    "$@"    ;;
+    doctor)    cmd_doctor  "$@"    ;;
+    restart)   cmd_restart         ;;
+    uninstall) cmd_uninstall       ;;
+    help|--help|-h) cmd_help       ;;
+    "")
+      # Default: quick status + help hint
+      cmd_status
+      printf "  %sRun %seasyclaw help%s to see all available commands.%s\n\n" \
+        "${DIM}" "${RESET}${CYAN}${BOLD}" "${RESET}${DIM}" "${RESET}"
+      ;;
+    *)
+      error "Unknown command: '${cmd}'"
+      info  "Run 'easyclaw help' to see all available commands."
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

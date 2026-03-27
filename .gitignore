@@ -1,0 +1,7 @@
+*.log
+*.tar.gz
+.env
+config/
+workspace/
+node_modules/
+.DS_Store
