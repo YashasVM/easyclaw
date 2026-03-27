@@ -13,7 +13,6 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub stars](https://img.shields.io/github/stars/YashasVM/easyclaw?style=social)](https://github.com/YashasVM/easyclaw/stargazers)
-[![Latest Release](https://img.shields.io/github/v/release/YashasVM/easyclaw)](https://github.com/YashasVM/easyclaw/releases)
 [![Shell: Bash](https://img.shields.io/badge/shell-bash-blue)](https://www.gnu.org/software/bash/)
 [![PowerShell](https://img.shields.io/badge/shell-PowerShell-blue)](https://docs.microsoft.com/en-us/powershell/)
 
