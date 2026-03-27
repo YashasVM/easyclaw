@@ -200,7 +200,7 @@ OpenSSH                    ALLOW       Anywhere
 Now you're ready to install. Run the EasyClaw installer on your server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.sh | bash
 ```
 
 When prompted:
@@ -226,7 +226,7 @@ EASYCLAW_PROVIDER=anthropic \
 EASYCLAW_API_KEY=sk-ant-xxx \
 EASYCLAW_CHANNELS=telegram \
 EASYCLAW_TELEGRAM_TOKEN=123:ABC \
-curl -fsSL https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.sh | bash
 ```
 
 ---

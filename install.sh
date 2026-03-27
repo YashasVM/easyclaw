@@ -17,7 +17,7 @@
 # License: MIT
 #
 # USAGE:
-#   curl -fsSL https://easyclaw.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.sh | bash
 #   -- or --
 #   bash install.sh
 # ==============================================================================

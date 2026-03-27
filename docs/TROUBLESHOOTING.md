@@ -108,7 +108,7 @@ node --version   # should say v20.x.x
 Then re-run the EasyClaw installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.sh | bash
 ```
 
 ---
@@ -345,7 +345,7 @@ easyclaw logs
 ```bash
 easyclaw backup    # back up your config first
 easyclaw uninstall
-curl -fsSL https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.sh | bash
 ```
 
 ---
@@ -414,7 +414,7 @@ Windows blocks running scripts by default. Fix it:
 
 ```powershell
 # Option 1: Bypass just for this session
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.ps1 | iex"
 
 # Option 2: Change policy permanently (run as Administrator)
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
@@ -500,4 +500,4 @@ free -h
 sudo ss -tlnp | grep 18789
 ```
 
-Paste this output when opening a GitHub issue at [github.com/yashasvm208/easyclaw/issues](https://github.com/yashasvm208/easyclaw/issues) and we'll help you sort it out.
+Paste this output when opening a GitHub issue at [github.com/YashasVM/easyclaw/issues](https://github.com/YashasVM/easyclaw/issues) and we'll help you sort it out.

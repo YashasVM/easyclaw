@@ -12,8 +12,8 @@
 **OpenClaw setup so easy, your grandma could do it. 🦞**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub stars](https://img.shields.io/github/stars/yashasvm208/easyclaw?style=social)](https://github.com/yashasvm208/easyclaw/stargazers)
-[![Latest Release](https://img.shields.io/github/v/release/yashasvm208/easyclaw)](https://github.com/yashasvm208/easyclaw/releases)
+[![GitHub stars](https://img.shields.io/github/stars/YashasVM/easyclaw?style=social)](https://github.com/YashasVM/easyclaw/stargazers)
+[![Latest Release](https://img.shields.io/github/v/release/YashasVM/easyclaw)](https://github.com/YashasVM/easyclaw/releases)
 [![Shell: Bash](https://img.shields.io/badge/shell-bash-blue)](https://www.gnu.org/software/bash/)
 [![PowerShell](https://img.shields.io/badge/shell-PowerShell-blue)](https://docs.microsoft.com/en-us/powershell/)
 
@@ -43,19 +43,19 @@ No Googling. No YAML editing. No manual systemd units. Just one command.
 ### macOS / Linux / WSL2
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.sh | bash
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.ps1 | iex
 ```
 
 Or if execution policy blocks it:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.ps1 | iex"
 ```
 
 The installer will walk you through everything interactively. Most people are up and running in under 5 minutes.
@@ -205,7 +205,7 @@ EASYCLAW_API_KEY=sk-ant-xxx \
 EASYCLAW_MODE=docker \
 EASYCLAW_CHANNELS=telegram \
 EASYCLAW_TELEGRAM_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ \
-curl -fsSL https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.sh | bash
 ```
 
 **Windows PowerShell:**
@@ -214,7 +214,7 @@ curl -fsSL https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.s
 $env:EASYCLAW_PROVIDER = "anthropic"
 $env:EASYCLAW_API_KEY = "sk-ant-xxx"
 $env:EASYCLAW_MODE = "docker"
-irm https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.ps1 | iex
 ```
 
 ### All supported environment variables
@@ -330,4 +330,4 @@ This project is licensed under the [MIT License](LICENSE).
 ## Credits
 
 - **OpenClaw** — the AI assistant gateway that powers everything: [github.com/openclaw/openclaw](https://github.com/openclaw/openclaw)
-- **Created by** [yashasvm208](https://github.com/yashasvm208)
+- **Created by** [YashasVM](https://github.com/YashasVM)

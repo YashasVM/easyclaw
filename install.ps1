@@ -8,12 +8,12 @@
     Supports native Windows (npm), Docker Desktop, and WSL2.
 .EXAMPLE
     # Run from PowerShell:
-    iwr -useb https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.ps1 | iex
+    iwr -useb https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.ps1 | iex
 
     # Or with options:
     .\install.ps1 -Provider anthropic -Mode native
 .LINK
-    https://github.com/yashasvm208/easyclaw
+    https://github.com/YashasVM/easyclaw
 #>
 
 [CmdletBinding()]
@@ -1143,7 +1143,7 @@ function Install-OpenClaw-WSL2 {
     Write-Info "Launching the Linux EasyClaw installer inside WSL2..."
     Write-Host ""
     Write-Host "  This will run the following inside your default WSL2 distribution:" -ForegroundColor DarkGray
-    Write-Host "  curl -fsSL https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.sh | bash" -ForegroundColor Cyan
+    Write-Host "  curl -fsSL https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.sh | bash" -ForegroundColor Cyan
     Write-Host ""
 
     $confirm = Read-YesNo -Prompt "Proceed?" -Default $true
@@ -1157,7 +1157,7 @@ function Install-OpenClaw-WSL2 {
     if ($script:API_KEY -ne "")        { $envVars += "EASYCLAW_API_KEY='$script:API_KEY' " }
     if ($script:ASSISTANT_NAME -ne "") { $envVars += "EASYCLAW_NAME='$script:ASSISTANT_NAME' " }
 
-    $wslCmd = "curl -fsSL https://raw.githubusercontent.com/yashasvm208/easyclaw/main/install.sh | ${envVars}bash"
+    $wslCmd = "curl -fsSL https://raw.githubusercontent.com/YashasVM/easyclaw/main/install.sh | ${envVars}bash"
 
     Write-Info "Switching to WSL2..."
     Write-Host ""
@@ -1298,7 +1298,7 @@ function Step7-VerifyAndCelebrate {
 
     $celebLines += "---"
     $celebLines += "   Thank you for using EasyClaw!     "
-    $celebLines += "   https://github.com/yashasvm208/easyclaw "
+    $celebLines += "   https://github.com/YashasVM/easyclaw "
 
     Write-Box -Lines $celebLines -Width 54
     Write-Host ""
@@ -1401,7 +1401,7 @@ function Show-FriendlyError {
 
     Write-Host "  Log saved to: $script:INSTALL_LOG" -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "  Get help: https://github.com/yashasvm208/easyclaw/issues" -ForegroundColor DarkGray
+    Write-Host "  Get help: https://github.com/YashasVM/easyclaw/issues" -ForegroundColor DarkGray
     Write-Host ""
 }
 
