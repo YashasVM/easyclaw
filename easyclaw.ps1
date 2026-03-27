@@ -117,24 +117,26 @@ function Write-Box {
     if ($Title.Length -gt $maxLen) { $maxLen = $Title.Length }
     $width = $maxLen + 4   # 2 spaces padding each side
 
-    $top    = [char]0x250C + ([string]([char]0x2500) * ($width)) + [char]0x2510
-    $bottom = [char]0x2514 + ([string]([char]0x2500) * ($width)) + [char]0x2518
-    $sep    = [char]0x251C + ([string]([char]0x2500) * ($width)) + [char]0x2524
-    $side   = [char]0x2502
+    $hBar   = [string]::new([char]0x2500, $width)
+    $top    = [string][char]0x250C + $hBar + [string][char]0x2510
+    $bottom = [string][char]0x2514 + $hBar + [string][char]0x2518
+    $sep    = [string][char]0x251C + $hBar + [string][char]0x2524
+    $side   = [string][char]0x2502
 
     Write-Host ""
     Write-Host "  $top" -ForegroundColor $BorderColor
     # Title row
     $pad   = $width - $Title.Length - 2
-    $lPad  = [string](' ' * [math]::Floor($pad / 2))
-    $rPad  = [string](' ' * [math]::Ceiling($pad / 2))
+    $lPad  = [string]::new(' ', [math]::Floor($pad / 2))
+    $rPad  = [string]::new(' ', [math]::Ceiling($pad / 2))
     Write-Host "  $side $lPad" -ForegroundColor $BorderColor -NoNewline
     Write-Host $Title -ForegroundColor White -NoNewline
     Write-Host "$rPad $side" -ForegroundColor $BorderColor
     Write-Host "  $sep" -ForegroundColor $BorderColor
 
     foreach ($line in $Lines) {
-        $rPadLine = [string](' ' * ($maxLen - $line.Length))
+        $padAmount = $maxLen - $line.Length
+        $rPadLine = $(if ($padAmount -gt 0) { [string]::new(' ', $padAmount) } else { '' })
         Write-Host "  $side  " -ForegroundColor $BorderColor -NoNewline
         Write-Host "$line$rPadLine" -NoNewline
         Write-Host "  $side" -ForegroundColor $BorderColor
@@ -163,7 +165,7 @@ function Show-Spinner {
 
     # Clear the spinner line
     Write-Host "`r" -NoNewline
-    Write-Host ("  " + (" " * ($Label.Length + 12))) -NoNewline
+    Write-Host ("  " + [string]::new(' ', ($Label.Length + 12))) -NoNewline
     Write-Host "`r" -NoNewline
 
     $result = Receive-Job $job -ErrorVariable jobErr 2>&1
@@ -596,16 +598,16 @@ function Invoke-Channels {
             }
             $rows = @()
             foreach ($ch in $cfg.channels) {
-                $status = if ($ch.enabled) { "enabled" } else { "disabled" }
+                $status = $(if ($ch.enabled) { "enabled" } else { "disabled" })
                 $rows += "$($ch.name.PadRight(20)) $($ch.type.PadRight(15)) $status"
             }
             Write-Box -Title "Channels" -Lines $rows
         }
 
         "add" {
-            $chName = if ($Rest.Count -gt 0) { $Rest[0] } else {
+            $chName = $(if ($Rest.Count -gt 0) { $Rest[0] } else {
                 Read-Host "  Channel name"
-            }
+            })
             Write-Step "Adding channel: $chName"
             try {
                 & openclaw channel add $chName
@@ -616,9 +618,9 @@ function Invoke-Channels {
         }
 
         "remove" {
-            $chName = if ($Rest.Count -gt 0) { $Rest[0] } else {
+            $chName = $(if ($Rest.Count -gt 0) { $Rest[0] } else {
                 Read-Host "  Channel name to remove"
-            }
+            })
             if (-not (Confirm-Prompt "Remove channel '$chName'?")) {
                 Write-Info "Cancelled."
                 return
@@ -1010,7 +1012,7 @@ function Invoke-Help {
 
     # Table header
     $col1 = 12; $col2 = 55
-    $hr = ("-" * ($col1 + $col2 + 5))
+    $hr = [string]::new('-', ($col1 + $col2 + 5))
     Write-Host "  $("Command".PadRight($col1))  Description" -ForegroundColor White
     Write-Host "  $hr" -ForegroundColor DarkGray
 
@@ -1092,7 +1094,7 @@ switch ($Command) {
     "restore"   { Invoke-Restore -BackupFile ($Args2 | Select-Object -First 1) }
     "channels"  {
         $sub  = $Args2 | Select-Object -First 1
-        $rest = if ($Args2.Count -gt 1) { $Args2[1..($Args2.Count-1)] } else { @() }
+        $rest = $(if ($Args2.Count -gt 1) { $Args2[1..($Args2.Count-1)] } else { @() })
         Invoke-Channels -SubCommand $sub -Rest $rest
     }
     "logs"      {

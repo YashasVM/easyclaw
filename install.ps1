@@ -118,7 +118,7 @@ function Write-Step {
     Write-Host ""
     Write-Host "[Step $Number/$Total] " -ForegroundColor Cyan -NoNewline
     Write-Host $Message -ForegroundColor White
-    Write-Host ("─" * 60) -ForegroundColor DarkGray
+    Write-Host ([string]::new([char]0x2500, 60)) -ForegroundColor DarkGray
     "STEP $Number/$Total : $Message" | Out-File -Append -FilePath $script:INSTALL_LOG
 }
 
@@ -186,7 +186,7 @@ function Read-YesNo {
         [string]$Prompt,
         [bool]$Default = $true
     )
-    $hint = if ($Default) { "[Y/n]" } else { "[y/N]" }
+    $hint = $(if ($Default) { "[Y/n]" } else { "[y/N]" })
     Write-Host "  ? " -ForegroundColor Cyan -NoNewline
     Write-Host "$Prompt " -NoNewline
     Write-Host $hint -ForegroundColor DarkGray -NoNewline
@@ -198,10 +198,11 @@ function Read-YesNo {
 
 function Write-Box {
     param([string[]]$Lines, [int]$Width = 54)
-    $top    = [char]0x2554 + ([char]0x2550 * $Width) + [char]0x2557
-    $bottom = [char]0x255A + ([char]0x2550 * $Width) + [char]0x255D
-    $div    = [char]0x2560 + ([char]0x2550 * $Width) + [char]0x2563
-    $side   = [char]0x2551
+    $hBar   = [string]::new([char]0x2550, $Width)
+    $top    = [string][char]0x2554 + $hBar + [string][char]0x2557
+    $bottom = [string][char]0x255A + $hBar + [string][char]0x255D
+    $div    = [string][char]0x2560 + $hBar + [string][char]0x2563
+    $side   = [string][char]0x2551
 
     Write-Host $top -ForegroundColor Cyan
     foreach ($line in $Lines) {
@@ -212,7 +213,7 @@ function Write-Box {
             $clean  = $line -replace '\[.+?\]', ''
             $padLen = $Width - $clean.Length
             if ($padLen -lt 0) { $padLen = 0 }
-            $pad = " " * $padLen
+            $pad = [string]::new(' ', $padLen)
             Write-Host "$side" -ForegroundColor Cyan -NoNewline
             Write-Host "$line$pad" -NoNewline
             Write-Host "$side" -ForegroundColor Cyan
@@ -400,19 +401,19 @@ function Step1-DetectEnvironment {
     )
 
     # Node
-    $nodeLabel = if ($script:NODE_OK) { "Node.js:      $script:NODE_VERSION  [OK]" }
+    $nodeLabel = $(if ($script:NODE_OK) { "Node.js:      $script:NODE_VERSION  [OK]" }
                  elseif ($script:NODE_VERSION -ne "none") { "Node.js:      $script:NODE_VERSION  [need >= $script:OPENCLAW_MIN_NODE]" }
-                 else { "Node.js:      not found" }
+                 else { "Node.js:      not found" })
     $boxLines += "  $nodeLabel"
 
     # Docker
-    $dockerLabel = if ($script:DOCKER_RUNNING) { "Docker:       running  [OK]" }
+    $dockerLabel = $(if ($script:DOCKER_RUNNING) { "Docker:       running  [OK]" }
                    elseif ($script:DOCKER_INSTALLED) { "Docker:       installed (not running)" }
-                   else { "Docker:       not installed" }
+                   else { "Docker:       not installed" })
     $boxLines += "  $dockerLabel"
 
     # WSL2
-    $wsl2Label = if ($script:WSL2_AVAILABLE) { "WSL2:         available" } else { "WSL2:         not detected" }
+    $wsl2Label = $(if ($script:WSL2_AVAILABLE) { "WSL2:         available" } else { "WSL2:         not detected" })
     $boxLines += "  $wsl2Label"
 
     # Package managers
@@ -420,12 +421,12 @@ function Step1-DetectEnvironment {
     if ($script:WINGET_AVAILABLE) { $pkgMgrs += "winget" }
     if ($script:CHOCO_AVAILABLE)  { $pkgMgrs += "chocolatey" }
     if ($script:SCOOP_AVAILABLE)  { $pkgMgrs += "scoop" }
-    $pkgLabel = if ($pkgMgrs.Count -gt 0) { $pkgMgrs -join ", " } else { "none found" }
+    $pkgLabel = $(if ($pkgMgrs.Count -gt 0) { $pkgMgrs -join ", " } else { "none found" })
     $boxLines += "  Package mgrs: $pkgLabel"
 
     # OpenClaw
-    $oclawLabel = if ($script:OPENCLAW_INSTALLED) { "OpenClaw:     already installed ($script:OPENCLAW_VERSION_INSTALLED)" }
-                  else { "OpenClaw:     not installed" }
+    $oclawLabel = $(if ($script:OPENCLAW_INSTALLED) { "OpenClaw:     already installed ($script:OPENCLAW_VERSION_INSTALLED)" }
+                  else { "OpenClaw:     not installed" })
     $boxLines += "  $oclawLabel"
 
     Write-Box -Lines $boxLines -Width 54
@@ -1356,7 +1357,7 @@ powershell.exe -ExecutionPolicy Bypass -File "%~dp0easyclaw.ps1" %*
     # Add to user PATH if not already there
     $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
     if ($userPath -notlike "*$easyclawDir*") {
-        $newPath = if ($userPath) { "$userPath;$easyclawDir" } else { $easyclawDir }
+        $newPath = $(if ($userPath) { "$userPath;$easyclawDir" } else { $easyclawDir })
         [System.Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
         Write-Success "Added $easyclawDir to user PATH"
         Write-Warn "PATH update takes effect in new PowerShell / cmd windows."
@@ -1410,10 +1411,10 @@ function Show-FriendlyError {
 # ==============================================================================
 function Main {
     # Initialize log
-    "=" * 60 | Out-File -Append -FilePath $script:INSTALL_LOG
+    [string]::new('=', 60) | Out-File -Append -FilePath $script:INSTALL_LOG
     "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] EasyClaw installer starting (PowerShell $($PSVersionTable.PSVersion))" |
         Out-File -Append -FilePath $script:INSTALL_LOG
-    "=" * 60 | Out-File -Append -FilePath $script:INSTALL_LOG
+    [string]::new('=', 60) | Out-File -Append -FilePath $script:INSTALL_LOG
 
     # ---- Show banner ----
     Show-Banner
