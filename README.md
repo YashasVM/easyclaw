@@ -305,28 +305,7 @@ Recommended providers: Hetzner, DigitalOcean, Contabo. Minimum specs: 2 vCPU, 2G
 
 ---
 
-## Contributing
-
-Contributions are welcome! To get started:
-
-1. Fork this repository
-2. Create a feature branch: `git checkout -b feature/my-improvement`
-3. Make your changes and test them
-4. Submit a pull request with a clear description of what you changed and why
-
-Please keep the installer compatible with Windows 10+, Ubuntu 20.04+, Debian 11+, Fedora 36+, and macOS 12+.
-
-For bug reports, open an issue and include the output of `easyclaw status` and your OS version.
-
----
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
-
----
-
 ## Credits
 
 - **OpenClaw** — the AI assistant gateway that powers everything: [github.com/openclaw/openclaw](https://github.com/openclaw/openclaw)
-- **Created by** [YashasVM](https://github.com/YashasVM)
+- **Made it easy by** [YashasVM](https://github.com/YashasVM)
